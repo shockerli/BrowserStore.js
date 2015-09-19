@@ -1,7 +1,7 @@
 /**
  * BrowserStore.js
  * General browser local storage engine
- * Support localStorage, openDatabase, userData, sessionStorage, globalStorage
+ * Support localStorage, openDatabase, userData, sessionStorage, globalStorage and cookie
  *
  * @author Shocker Li
  * @link https://github.com/shockerli/BrowserStore.js
@@ -9,7 +9,8 @@
 
 (function() {
 
-    BrowserStore = {
+    BrowserStore = window.BrowserStore = {
+        version: "1.0",
         /**
          * Initialize the BrowserStore
          *
@@ -34,10 +35,13 @@
                     case "sessionStorage":
                         this.storage = sessionStorage.init();
                         break;
+                    case "cookie":
+                        this.storage = cookie.init();
+                        break;
                 }
 
                 if (!this.storage) {
-                    this.storage = localStorage.init() || openDatabase.init() || userData.init() || globalStorage.init() || sessionStorage.init() || emptyStorage.init();
+                    this.storage = localStorage.init() || openDatabase.init() || userData.init() || globalStorage.init() || sessionStorage.init() || cookie.init() || emptyStorage.init();
                 }
             }
 
@@ -193,7 +197,7 @@
             if (this._storage.clear) {
                 this._storage.clear();
             } else {
-                for (key in this._storage) {
+                for (var key in this._storage) {
                     this.removeStorage(key);
                 }
             }
@@ -210,22 +214,28 @@
     var userData = {
         name: 'userData',
         init: function() {
-            this.Master = "ie6+";
-            if (!Browser.ie)
+            if (!window.document.documentElement.addBehavior) {
                 return false;
-            this.file_name = 'Upfor_UserData';
+            }
+            this.file_name = window.location.hostname;
             if (!this._storage) {
                 try {
-                    var handle = this._storage = document.createElement('input');
-                    handle.type = 'hidden';
-                    handle.addBehavior('#default#userData');
-                    document.body.appendChild(handle);
-                    handle.save(this.file_name);
-                } catch (e) {}
+                    this._storage = document.createElement('input');
+                    this._storage.type = 'hidden';
+                    this._storage.style.display = 'none';
+                    this._storage.addBehavior('#default#userData');
+                    document.body.appendChild(this._storage);
+                    var expires = new Date();
+                    expires.setDate(expires.getDate() + 365);
+                    this._storage.expires = expires.toUTCString();
+                } catch (e) {
+                    return false;
+                }
             }
             return this;
         },
         setStorage: function(key, value) {
+            this._storage.load(this.file_name);
             this._storage.setAttribute(key, value);
             this._storage.save(this.file_name);
             return true;
@@ -240,6 +250,7 @@
             }
         },
         removeStorage: function(key) {
+            this._storage.load(this.file_name);
             this._storage.removeAttribute(key);
             this._storage.save(this.file_name);
             return true;
@@ -342,7 +353,7 @@
             if (this._storage.clear) {
                 this._storage.clear();
             } else {
-                for (key in this._storage) {
+                for (var key in this._storage) {
                     this.removeStorage(key);
                 }
             }
@@ -384,11 +395,76 @@
             if (this._storage.clear) {
                 this._storage.clear();
             } else {
-                for (key in this._storage) {
+                for (var key in this._storage) {
                     this.removeStorage(key);
                 }
             }
             return true;
+        }
+    };
+
+    /**
+     * cookie
+     *
+     * @type object
+     */
+    var cookie = {
+        name: "cookie",
+        init: function() {
+            return this;
+        },
+        setStorage: function(key, value) {
+            if (!this.isValidKey(key)) {
+                return;
+            }
+
+            var data = JSON.parse(value);
+            var expire = new Date();
+            if (typeof data.expireTime === 'number') {
+                expire.setTime(data.expireTime);
+            } else {
+                expire.setTime(expire.getTime() + 86400000 * 7);
+            }
+
+            var config = {
+                "path": "",
+                "domain": "",
+                "secure": ""
+            };
+            document.cookie = key + "=" + value + ("; path=" + (config.path ? (config.path === './' ? '' : config.path) : "/")) + (expire ? "; expires=" + expire.toGMTString() : "") + (config.domain ? "; domain=" + config.domain : "") + (config.secure ? "; secure" : '');
+        },
+        getStorage: function(key, callback) {
+            if (this.isValidKey(key)) {
+                var reg = new RegExp("(^| )" + key + "=([^;\/]*)([^;\x24]*)(;|\x24)");
+                var result = reg.exec(document.cookie);
+                if (result) {
+                    if (callback) {
+                        callback(result[2]);
+                    } else {
+                        return result[2];
+                    }
+                }
+            }
+            return false;
+        },
+        removeStorage: function(key) {
+            var data = {
+                "key": key,
+                "value": null,
+                "expireTime": -1
+            };
+            this.setStorage(key, JSON.stringify(data));
+            return true;
+        },
+        clearStorage: function() {
+            var keyArray = document.cookie.match(/[^ =;]+(?=\=)/g);
+            for (var key in keyArray) {
+                this.removeStorage(key);
+            }
+            return true;
+        },
+        isValidKey: function(key) {
+            return (new RegExp("^[^\\x00-\\x20\\x7f\\(\\)<>@,;:\\\\\\\"\\[\\]\\?=\\{\\}\\/\\u0080-\\uffff]+\x24")).test(key);
         }
     };
 
